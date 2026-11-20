@@ -9,7 +9,7 @@
 // Local test:
 //   mkdir -p out && MAKEFUN_BOT_DIR=. MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const botDir = process.env.MAKEFUN_BOT_DIR ?? "/bot";
@@ -17,8 +17,32 @@ const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
 
 mkdirSync(outputDir, { recursive: true });
 
+// Validate POST.json before copying: it must parse as JSON and carry the
+// post's URL as a string. Failing here, with a clear message, is better than
+// copying a broken file that the gate would reject later.
+const sourcePath = join(botDir, "POST.json");
+let postUrl: unknown;
 try {
-  copyFileSync(join(botDir, "POST.json"), join(outputDir, "POST.json"));
+  const parsed: unknown = JSON.parse(readFileSync(sourcePath, "utf8"));
+  postUrl =
+    parsed !== null && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>).url
+      : undefined;
+} catch (error) {
+  console.error(
+    `POST.json in ${botDir} is not valid JSON: ${(error as Error).message}`,
+  );
+  process.exit(1);
+}
+if (typeof postUrl !== "string" || postUrl.length === 0) {
+  console.error(
+    `POST.json in ${botDir} has no string "url" field; refusing to copy it.`,
+  );
+  process.exit(1);
+}
+
+try {
+  copyFileSync(sourcePath, join(outputDir, "POST.json"));
 } catch (error) {
   console.error(
     `Could not copy POST.json from ${botDir}: ${(error as Error).message}`,
